@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31702.278
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SniffAvtr", "SniffAvtr\SniffAvtr.csproj", "{974B8144-3E60-41B3-ADC4-F8621DB50D23}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{974B8144-3E60-41B3-ADC4-F8621DB50D23}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{974B8144-3E60-41B3-ADC4-F8621DB50D23}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{974B8144-3E60-41B3-ADC4-F8621DB50D23}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{974B8144-3E60-41B3-ADC4-F8621DB50D23}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F01A94E8-BF94-4B30-B05D-E332E8C4C3FA}
+	EndGlobalSection
+EndGlobal
