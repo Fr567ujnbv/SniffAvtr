@@ -59,6 +59,7 @@ namespace SniffAvtr
 			this.ColumnHeaderAvatarAuthor = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
 			this.ColumnHeaderAvatarAuthorId = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
 			this.ColumnHeaderAvatarUrl = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+			this.CheckBox_LogRawPackets = new System.Windows.Forms.CheckBox();
 			this.ContextMenuStrip_ListView.SuspendLayout();
 			this.SuspendLayout();
 			// 
@@ -150,7 +151,7 @@ namespace SniffAvtr
             this.copyAssetURLToolStripMenuItem});
 			this.ContextMenuStrip_ListView.Name = "ContextMenuStrip_ListView";
 			this.ContextMenuStrip_ListView.ShowImageMargin = false;
-			this.ContextMenuStrip_ListView.Size = new System.Drawing.Size(196, 220);
+			this.ContextMenuStrip_ListView.Size = new System.Drawing.Size(196, 198);
 			// 
 			// copyUserDisplaynameToolStripMenuItem
 			// 
@@ -293,11 +294,23 @@ namespace SniffAvtr
 			// 
 			this.ColumnHeaderAvatarUrl.Text = "URL";
 			// 
+			// CheckBox_LogRawPackets
+			// 
+			this.CheckBox_LogRawPackets.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+			this.CheckBox_LogRawPackets.AutoSize = true;
+			this.CheckBox_LogRawPackets.Location = new System.Drawing.Point(488, 50);
+			this.CheckBox_LogRawPackets.Name = "CheckBox_LogRawPackets";
+			this.CheckBox_LogRawPackets.Size = new System.Drawing.Size(111, 17);
+			this.CheckBox_LogRawPackets.TabIndex = 7;
+			this.CheckBox_LogRawPackets.Text = "Log Raw Packets";
+			this.CheckBox_LogRawPackets.UseVisualStyleBackColor = true;
+			// 
 			// MainForm
 			// 
 			this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
 			this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
 			this.ClientSize = new System.Drawing.Size(800, 450);
+			this.Controls.Add(this.CheckBox_LogRawPackets);
 			this.Controls.Add(this.CheckBox_SkipDuplicates);
 			this.Controls.Add(this.CheckBox_AutoScroll);
 			this.Controls.Add(this.Button_Clear);
@@ -346,6 +359,7 @@ namespace SniffAvtr
 		private System.Windows.Forms.ToolStripMenuItem copyAuthorIDToolStripMenuItem;
 		private System.Windows.Forms.ToolStripSeparator toolStripSeparator3;
 		private System.Windows.Forms.ToolStripMenuItem copyAssetURLToolStripMenuItem;
+		private System.Windows.Forms.CheckBox CheckBox_LogRawPackets;
 	}
 }
 

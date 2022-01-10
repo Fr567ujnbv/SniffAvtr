@@ -24,7 +24,7 @@
     <UpdateRequired>false</UpdateRequired>
     <MapFileExtensions>true</MapFileExtensions>
     <ApplicationRevision>0</ApplicationRevision>
-    <ApplicationVersion>2022.1.1.%2a</ApplicationVersion>
+    <ApplicationVersion>2022.2.1.%2a</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <BootstrapperEnabled>true</BootstrapperEnabled>
   </PropertyGroup>
@@ -69,9 +69,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="IPPacket.cs" />
-    <Compile Include="ListViewEx.cs">
-      <SubType>Component</SubType>
-    </Compile>
+    <Compile Include="ListViewEx.cs" />
+    <Compile Include="Logger.cs" />
     <Compile Include="MainForm.cs">
       <SubType>Form</SubType>
     </Compile>

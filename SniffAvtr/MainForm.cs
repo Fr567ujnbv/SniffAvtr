@@ -23,8 +23,8 @@ namespace SniffAvtr
 		private List<PhotonPacket.Command> FragmentedMessages = new List<PhotonPacket.Command>();
 		public MainForm()
 		{
-			MainListView = new ListViewEx();
 			InitializeComponent();
+			Logger.WriteLine($"{Text} started");
 
 			IPHostEntry hostEntry = Dns.GetHostEntry(Dns.GetHostName());
 			foreach (IPAddress address in hostEntry.AddressList)
@@ -55,12 +55,13 @@ namespace SniffAvtr
 			}
 			catch (Exception ex)
 			{
-				MessageBox.Show(ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+				Logger.WriteLine($"An error occurred changing capture state: {ex.Message}\n{ex.StackTrace}");
 			}
 		}
 
 		private void SetupAndStart_MainSocket()
 		{
+			Logger.WriteLine("Starting capture");
 			Button_StartStop.Text = "&Stop";
 			ContinueCapturing = true;
 			MainStocket = new Socket(AddressFamily.InterNetwork, SocketType.Raw, ProtocolType.IP);
@@ -73,6 +74,7 @@ namespace SniffAvtr
 
 		private void Stop_MainSocket()
 		{
+			Logger.WriteLine("Stoping capture");
 			Button_StartStop.Text = "&Start";
 			ContinueCapturing = false;
 			MainStocket.Close();
@@ -99,7 +101,7 @@ namespace SniffAvtr
 			catch (ObjectDisposedException) { }
 			catch (Exception ex)
 			{
-				MessageBox.Show(ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+				Logger.WriteLine($"An error occurred receiving data: {ex.Message}\n{ex.StackTrace}");
 			}
 		}
 
@@ -108,118 +110,122 @@ namespace SniffAvtr
 			// Parse data as IP packet
 			IPPacket ip = new IPPacket(buffer, count);
 			// Filter UDP traffic
-			if (ip.ProtocolType == IPPacket.Protocol.UDP)
+			if (ip.ProtocolType != IPPacket.Protocol.UDP)
 			{
-				// Parse payload as UDP packet
-				UDPPacket udp = new UDPPacket(ip.Data, ip.MessageLength);
-				// Filter port 5056 traffic
-				if (/*udp.DestinationPort == 5056 || */udp.SourcePort == 5056)
+				return;
+			}
+			// Parse payload as UDP packet
+			UDPPacket udp = new UDPPacket(ip.Data, ip.MessageLength);
+			// Filter port 5056 traffic
+			if (/*udp.DestinationPort == 5056 || */udp.SourcePort != 5056)
+			{
+				return;
+			}
+			// Parse payload as Photon package packet
+			PhotonPacket photon = new PhotonPacket(udp.Data, udp.Length);
+
+			// Parse each Photon command
+			int commandOffset = 0;
+			for (int i = 0; i < photon.CommandCount; i++)
+			{
+				PhotonPacket.Command command = new PhotonPacket.Command(photon.Data, commandOffset, photon.Length);
+				commandOffset += (int)command.Length;
+
+				// Filter only fragmented messages (packets bigger than ~1154 bytes)
+				if (command.CommandType != PhotonPacket.Command.Type.SendReliableFragment)
 				{
-					// Parse payload as Photon package packet
-					PhotonPacket photon = new PhotonPacket(udp.Data, udp.Length);
+					continue;
+				}
+				command.ParsePayload();
+				FragmentedMessages.Add(command);
 
-					// Parse each Photon command
-					int commandOffset = 0;
-					for (int i = 0; i < photon.CommandCount; i++)
+				// Check if full set of fragments now exists
+				var matching = FragmentedMessages.FindAll(x => x.StartSequenceNumber == command.StartSequenceNumber && x.TotalLength == command.TotalLength);
+				if (matching.Count >= command.Fragments)
+				{
+					bool complete = true;
+					for (int j = 0; j < command.Fragments; j++)
 					{
-						PhotonPacket.Command command = new PhotonPacket.Command(photon.Data, commandOffset, photon.Length);
-
-						// Filter only fragmented messages (packets bigger than ~1154 bytes)
-						if (command.CommandType == PhotonPacket.Command.Type.SendReliableFragment)
+						if (!matching.Exists(x => x.Index == j))
 						{
-							command.ParsePayload();
-							FragmentedMessages.Add(command);
+							complete = false;
+							break;
+						}
+					}
 
-							// Check if full set of fragments now exists
-							var matching = FragmentedMessages.FindAll(x => x.StartSequenceNumber == command.StartSequenceNumber && x.TotalLength == command.TotalLength);
-							if (matching.Count >= command.Fragments)
-							{
-								bool complete = true;
-								for (int j = 0; j < command.Fragments; j++)
-								{
-									if (!matching.Exists(x => x.Index == j))
-									{
-										complete = false;
-										break;
-									}
-								}
+					if (!complete)
+					{
+						continue;
+					}
+					// Reassemble all fragments into message
+					FragmentedMessages.RemoveAll(x => x.StartSequenceNumber == command.StartSequenceNumber);
 
-								// Reassemble all fragments into message
-								if (complete)
-								{
-									FragmentedMessages.RemoveAll(x => x.StartSequenceNumber == command.StartSequenceNumber);
-
-									byte[] messageBuffer = new byte[command.TotalLength];
-									for (int j = 0; j < command.Fragments; j++)
-									{
-										var fragment = matching.Find(x => x.Index == j);
-										Array.Copy(fragment.MessageData, 0, messageBuffer, fragment.Offset, fragment.Length - 32);
-									}
+					byte[] messageBuffer = new byte[command.TotalLength];
+					for (int j = 0; j < command.Fragments; j++)
+					{
+						var fragment = matching.Find(x => x.Index == j);
+						Array.Copy(fragment.MessageData, 0, messageBuffer, fragment.Offset, fragment.Length - 32);
+					}
 
 
-									// Parse reassembled message
-									PhotonPacket.Message message = new PhotonPacket.Message(messageBuffer, 0, command.TotalLength);
-									byte[] data = message.Data;
+					// Parse reassembled message
+					PhotonPacket.Message message = new PhotonPacket.Message(messageBuffer, 0, command.TotalLength);
+					byte[] data = message.Data;
 
-									while (true)
-									{
-										if (data == null)
-										{
-											break;
-										}
+					if (CheckBox_LogRawPackets.Checked)
+						Logger.WriteLine($"{message.Signifier}, {message.MessageType}, {message.OperationCode}, {message.OperationReturnCode}, {message.OperationDebug}, {message.EventCode}, {message.ParameterCount}, " + Convert.ToBase64String(data, 0, data.Length));
 
-										//if (message.MessageType == PhotonPacket.Message.Type.OperationResponse)
-										//{
-										//	Debugger.Log(0, "", $"{message.Signifier}, {message.MessageType}, {message.OperationCode}, {message.OperationReturnCode}, {message.OperationDebug}, {message.EventCode}, {message.ParameterCount}, " + DumpHex(data, data.Length) + "\n");
-										//}
-
-										var ptrUser = IndexInByteArray(data, "\x0004user") + 6;
-										if (ptrUser == 5) // Message doesn't have user record
-										{
-											// Abort parsing command
-											break;
-										}
-										var ptrDisplayName = ptrUser + IndexInByteArray(data.Skip(ptrUser).ToArray(), "\x000bdisplayName") + 13;
-										var ptrUserId = ptrUser + IndexInByteArray(data.Skip(ptrUser).ToArray(), "\x0002id") + 4;
-
-										var ptrAvatarDict = IndexInByteArray(data, "\x000aavatarDict") + 12;
-										if (ptrAvatarDict == 11) // Message doesn't have avatar record
-										{
-											// Abort parsing command
-											break;
-										}
-										var ptrAvatarName = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x0004name") + 6;
-										var ptrAvatarDescription = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x000bdescription") + 13;
-										var ptrAvatarId = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x0002id") + 4;
-										var ptrAvatarUpdatedAt = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x000aupdated_at") + 12;
-										var ptrAvatarAuthor = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x000aauthorName") + 12;
-										var ptrAvatarAuthorId = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x0008authorId") + 10;
-										var ptrAvatarAssetUrl = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x0008assetUrl") + 10;
-										NewListViewItems.Enqueue(new ListViewItem(new string[]
-										{
-											Encoding.UTF8.GetString(data.Skip(ptrDisplayName + 1).Take(data[ptrDisplayName]).ToArray()),
-											Encoding.UTF8.GetString(data.Skip(ptrUserId + 1).Take(data[ptrUserId]).ToArray()),
-											Encoding.UTF8.GetString(data.Skip(ptrAvatarName + 1).Take(data[ptrAvatarName]).ToArray()),
-											Encoding.UTF8.GetString(data.Skip(ptrAvatarDescription + 1).Take(data[ptrAvatarDescription]).ToArray()),
-											Encoding.UTF8.GetString(data.Skip(ptrAvatarId + 1).Take(data[ptrAvatarId]).ToArray()),
-											Encoding.UTF8.GetString(data.Skip(ptrAvatarUpdatedAt + 1).Take(data[ptrAvatarUpdatedAt]).ToArray()),
-											Encoding.UTF8.GetString(data.Skip(ptrAvatarAuthor + 1).Take(data[ptrAvatarAuthor]).ToArray()),
-											Encoding.UTF8.GetString(data.Skip(ptrAvatarAuthorId + 1).Take(data[ptrAvatarAuthorId]).ToArray()),
-											Encoding.UTF8.GetString(data.Skip(ptrAvatarAssetUrl + 1).Take(data[ptrAvatarAssetUrl]).ToArray())
-										}, -1));
-
-										var tail = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x0003\x00ff\x0008\x000b");
-										if (tail == -1)
-										{
-											break;
-										}
-										data = data.Skip(tail).ToArray();
-									}
-								}
-							}
+					while (true)
+					{
+						if (data == null)
+						{
+							break;
 						}
 
-						commandOffset += (int)command.Length;
+						var ptrUser = FindOffset(data, "user");
+						if (ptrUser == 5) // Message doesn't have user record
+						{
+							// Abort parsing command
+							break;
+						}
+						var ptrDisplayName = FindOffset(data, "displayName", after: ptrUser);
+						var ptrUserId = FindOffset(data, "id", after: ptrUser);
+
+						var ptrAvatarDict = FindOffset(data, "avatarDict");
+						if (ptrAvatarDict == 11) // Message doesn't have avatar record
+						{
+							// Abort parsing command
+							break;
+						}
+						var ptrAvatarName = FindOffset(data, "name", after: ptrAvatarDict);
+						var ptrAvatarDescription = FindOffset(data, "description", after: ptrAvatarDict);
+						var ptrAvatarId = FindOffset(data, "id", after: ptrAvatarDict);
+						var ptrAvatarUpdatedAt = FindOffset(data, "updated_at", after: ptrAvatarDict);
+						var ptrAvatarAuthor = FindOffset(data, "authorName", after: ptrAvatarDict);
+						var ptrAvatarAuthorId = FindOffset(data, "authorId", after: ptrAvatarDict);
+						var ptrAvatarAssetUrl = FindOffset(data, "assetUrl", after: ptrAvatarDict);
+
+						var subitemstrings = new string[]
+						{
+							Encoding.UTF8.GetString(data.Skip(ptrDisplayName + 1).Take(data[ptrDisplayName]).ToArray()),
+							Encoding.UTF8.GetString(data.Skip(ptrUserId + 1).Take(data[ptrUserId]).ToArray()),
+							Encoding.UTF8.GetString(data.Skip(ptrAvatarName + 1).Take(data[ptrAvatarName]).ToArray()),
+							Encoding.UTF8.GetString(data.Skip(ptrAvatarDescription + 1).Take(data[ptrAvatarDescription]).ToArray()),
+							Encoding.UTF8.GetString(data.Skip(ptrAvatarId + 1).Take(data[ptrAvatarId]).ToArray()),
+							Encoding.UTF8.GetString(data.Skip(ptrAvatarUpdatedAt + 1).Take(data[ptrAvatarUpdatedAt]).ToArray()),
+							Encoding.UTF8.GetString(data.Skip(ptrAvatarAuthor + 1).Take(data[ptrAvatarAuthor]).ToArray()),
+							Encoding.UTF8.GetString(data.Skip(ptrAvatarAuthorId + 1).Take(data[ptrAvatarAuthorId]).ToArray()),
+							Encoding.UTF8.GetString(data.Skip(ptrAvatarAssetUrl + 1).Take(data[ptrAvatarAssetUrl]).ToArray())
+						};
+						Logger.WriteLine(string.Join(", ", subitemstrings));
+						NewListViewItems.Enqueue(new ListViewItem(subitemstrings, -1));
+
+						var tail = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x0003\x00ff\x0008\x000b");
+						if (tail == -1)
+						{
+							break;
+						}
+						data = data.Skip(tail).ToArray();
 					}
 				}
 			}
@@ -234,6 +240,39 @@ namespace SniffAvtr
 				output += $"{b:X2} ";
 			}
 			return output;
+		}
+
+		private int FindOffset(byte[] buffer, string key, int after = 0)
+		{
+			if (after != 0)
+			{
+				buffer = buffer.Skip(after).ToArray();
+			}
+			int len = key.Length;
+			string pattern = Encoding.Default.GetString(To7BitEncodedInt(len)) + key;
+			return IndexInByteArray(buffer, pattern) + len + 2 + after;
+		}
+
+		private byte[] To7BitEncodedInt(int value)
+		{
+			byte[] output;
+			if (value < 0x80)
+				output = new byte[] { (byte)value };
+			else if (value < 0x4000)
+				output = new byte[] { (byte)(value | 0x80), (byte)(value >> 7) };
+			else if (value < 0x200000)
+				output = new byte[] { (byte)(value | 0x80), (byte)(value >> 7 | 0x80), (byte)(value >> 14) };
+			else if (value < 0x1000000)
+				output = new byte[] { (byte)(value | 0x80), (byte)(value >> 7 | 0x80), (byte)(value >> 14 | 0x80), (byte)(value >> 21) };
+			else
+				output = new byte[] { (byte)(value | 0x80), (byte)(value >> 7 | 0x80), (byte)(value >> 14 | 0x80), (byte)(value >> 21 | 0x80), (byte)((uint)value >> 28) };
+			return output;
+		}
+
+		private int From7BitEncodedInt(byte[] buffer)
+		{
+			// Needs to also signal the amount of bytes consumed. Should probably just use BinaryReader
+			throw new NotImplementedException();
 		}
 
 		private int IndexInByteArray(byte[] buffer, string pattern) => IndexInByteArray(buffer, pattern.Select(c => (byte)c).ToArray());
@@ -257,10 +296,12 @@ namespace SniffAvtr
 
 		private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
 		{
+			Logger.WriteLine($"{Text} closing");
 			if (ContinueCapturing)
 			{
 				MainStocket.Close();
 			}
+			Logger.Flush();
 		}
 
 		private void Button_Clear_Click(object sender, EventArgs e)
