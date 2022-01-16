@@ -1,4 +1,6 @@
-﻿using System;
+﻿using ExitGames.Client.Photon;
+using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -124,6 +126,8 @@ namespace SniffAvtr
 			// Parse payload as Photon package packet
 			PhotonPacket photon = new PhotonPacket(udp.Data, udp.Length);
 
+			List<PhotonPacket.Message> messages = new List<PhotonPacket.Message>();
+
 			// Parse each Photon command
 			int commandOffset = 0;
 			for (int i = 0; i < photon.CommandCount; i++)
@@ -131,101 +135,137 @@ namespace SniffAvtr
 				PhotonPacket.Command command = new PhotonPacket.Command(photon.Data, commandOffset, photon.Length);
 				commandOffset += (int)command.Length;
 
-				// Filter only fragmented messages (packets bigger than ~1154 bytes)
-				if (command.CommandType != PhotonPacket.Command.Type.SendReliableFragment)
+				if (command.CommandType == PhotonPacket.Command.Type.SendReliable)
 				{
-					continue;
+					command.ParsePayload();
+					PhotonPacket.Message message = new PhotonPacket.Message(command.MessageData, 0, (int)command.Length);
+					messages.Add(message);
 				}
-				command.ParsePayload();
-				FragmentedMessages.Add(command);
-
-				// Check if full set of fragments now exists
-				var matching = FragmentedMessages.FindAll(x => x.StartSequenceNumber == command.StartSequenceNumber && x.TotalLength == command.TotalLength);
-				if (matching.Count >= command.Fragments)
+				else if (command.CommandType == PhotonPacket.Command.Type.SendReliableFragment)
 				{
-					bool complete = true;
-					for (int j = 0; j < command.Fragments; j++)
+					command.ParsePayload();
+					FragmentedMessages.Add(command);
+
+					// Check if full set of fragments now exists
+					var matching = FragmentedMessages.FindAll(x => x.StartSequenceNumber == command.StartSequenceNumber && x.TotalLength == command.TotalLength);
+					if (matching.Count >= command.Fragments)
 					{
-						if (!matching.Exists(x => x.Index == j))
+						bool complete = true;
+						for (int j = 0; j < command.Fragments; j++)
 						{
-							complete = false;
-							break;
+							if (!matching.Exists(x => x.Index == j))
+							{
+								complete = false;
+								break;
+							}
 						}
-					}
 
-					if (!complete)
+						if (!complete)
+						{
+							continue;
+						}
+						// Reassemble all fragments into message
+						FragmentedMessages.RemoveAll(x => x.StartSequenceNumber == command.StartSequenceNumber);
+
+						byte[] messageBuffer = new byte[command.TotalLength];
+						for (int j = 0; j < command.Fragments; j++)
+						{
+							var fragment = matching.Find(x => x.Index == j);
+							Array.Copy(fragment.MessageData, 0, messageBuffer, fragment.Offset, fragment.Length - 32);
+						}
+
+
+						// Parse reassembled message
+						PhotonPacket.Message message = new PhotonPacket.Message(messageBuffer, 0, command.TotalLength);
+						messages.Add(message);
+					}
+				}
+			}
+
+			foreach (PhotonPacket.Message message in messages)
+			{
+				byte code = 0;
+				ParameterDictionary parameters = null;
+				short returnCode = 0;
+				string debug = "";
+
+				try//deserializing message using Photon SDK
+				{
+					var protocol = new Protocol18();
+					var streamBuffer = new StreamBuffer(message.Data);
+
+					switch (message.MessageType)
 					{
-						continue;
+						case PhotonPacket.Message.Type.OperationRequest:
+							var operationRequest = protocol.DeserializeOperationRequest(streamBuffer);
+							code = operationRequest.OperationCode;
+							parameters = operationRequest.Parameters;
+							break;
+						case PhotonPacket.Message.Type.OperationResponse:
+						case PhotonPacket.Message.Type.OperationResponse7:
+							var operationResponse = protocol.DeserializeOperationResponse(streamBuffer);
+							code = operationResponse.OperationCode;
+							parameters = operationResponse.Parameters;
+							debug = operationResponse.DebugMessage;
+							returnCode = operationResponse.ReturnCode;
+							break;
+						case PhotonPacket.Message.Type.EventData:
+							var eventData = protocol.DeserializeEventData(streamBuffer);
+							code = eventData.Code;
+							parameters = eventData.Parameters;
+							break;
 					}
-					// Reassemble all fragments into message
-					FragmentedMessages.RemoveAll(x => x.StartSequenceNumber == command.StartSequenceNumber);
+				}
+				catch (Exception ex)
+				{
+					Logger.WriteLine($"An error occurred parsing message data: {ex.Message}\n{ex.StackTrace}");
+					Logger.WriteLine($"Message info: {message.Signifier}, {message.MessageType}, {code}, {returnCode}, {debug}, {parameters?.Count}, " + Convert.ToBase64String(message.Data, 0, message.Data.Length));
+				}
 
-					byte[] messageBuffer = new byte[command.TotalLength];
-					for (int j = 0; j < command.Fragments; j++)
-					{
-						var fragment = matching.Find(x => x.Index == j);
-						Array.Copy(fragment.MessageData, 0, messageBuffer, fragment.Offset, fragment.Length - 32);
-					}
+				if (CheckBox_LogRawPackets.Checked && (byte)message.MessageType < 0x80)
+					Logger.WriteLine($"{message.Signifier}, {message.MessageType}, {code}, {returnCode}, {debug}, {parameters?.Count}, " + Convert.ToBase64String(message.Data, 0, message.Data.Length));
 
-
-					// Parse reassembled message
-					PhotonPacket.Message message = new PhotonPacket.Message(messageBuffer, 0, command.TotalLength);
-					byte[] data = message.Data;
-
+				if (parameters != null)
+				{
 					if (CheckBox_LogRawPackets.Checked)
-						Logger.WriteLine($"{message.Signifier}, {message.MessageType}, {message.OperationCode}, {message.OperationReturnCode}, {message.OperationDebug}, {message.EventCode}, {message.ParameterCount}, " + Convert.ToBase64String(data, 0, data.Length));
+						Logger.WriteLine($"{message.Signifier}, {message.MessageType}, {code}, {returnCode}, {debug}, {parameters.Count}, {parameters.ToStringFull()}");
 
-					while (true)
+					// Go through each parameter to find property record
+					foreach (var parameter in parameters)
 					{
-						if (data == null)
+						if (parameter.Value is IDictionary paramDict)
 						{
-							break;
-						}
+							if (CheckBox_LogRawPackets.Checked)
+								Logger.WriteLine($"{message.Signifier}:{parameter.Key}: " + SupportClass.DictionaryToString(paramDict));
 
-						var ptrUser = FindOffset(data, "user");
-						if (ptrUser == 5) // Message doesn't have user record
-						{
-							// Abort parsing command
-							break;
-						}
-						var ptrDisplayName = FindOffset(data, "displayName", after: ptrUser);
-						var ptrUserId = FindOffset(data, "id", after: ptrUser);
+							if (!TryParseProperty(paramDict))
+							{
+								// Failed to parse. Try as list of props
+								foreach (DictionaryEntry subItem in paramDict)
+								{
+									if (subItem.Value is IDictionary subDict)
+									{
+										if (CheckBox_LogRawPackets.Checked)
+											Logger.WriteLine($"{message.Signifier}:{subItem.Key}: " + SupportClass.DictionaryToString(subDict));
 
-						var ptrAvatarDict = FindOffset(data, "avatarDict");
-						if (ptrAvatarDict == 11) // Message doesn't have avatar record
-						{
-							// Abort parsing command
-							break;
+										if (!TryParseProperty(subDict))
+										{
+											Debugger.Break();
+										}
+									}
+									else
+									{
+										if (CheckBox_LogRawPackets.Checked)
+											Logger.WriteLine($"{message.Signifier}:{subItem.Key}: {subItem.Value}");
+									}
+								}
+							}
 						}
-						var ptrAvatarName = FindOffset(data, "name", after: ptrAvatarDict);
-						var ptrAvatarDescription = FindOffset(data, "description", after: ptrAvatarDict);
-						var ptrAvatarId = FindOffset(data, "id", after: ptrAvatarDict);
-						var ptrAvatarUpdatedAt = FindOffset(data, "updated_at", after: ptrAvatarDict);
-						var ptrAvatarAuthor = FindOffset(data, "authorName", after: ptrAvatarDict);
-						var ptrAvatarAuthorId = FindOffset(data, "authorId", after: ptrAvatarDict);
-						var ptrAvatarAssetUrl = FindOffset(data, "assetUrl", after: ptrAvatarDict);
-
-						var subitemstrings = new string[]
+						else
 						{
-							Encoding.UTF8.GetString(data.Skip(ptrDisplayName + 1).Take(data[ptrDisplayName]).ToArray()),
-							Encoding.UTF8.GetString(data.Skip(ptrUserId + 1).Take(data[ptrUserId]).ToArray()),
-							Encoding.UTF8.GetString(data.Skip(ptrAvatarName + 1).Take(data[ptrAvatarName]).ToArray()),
-							Encoding.UTF8.GetString(data.Skip(ptrAvatarDescription + 1).Take(data[ptrAvatarDescription]).ToArray()),
-							Encoding.UTF8.GetString(data.Skip(ptrAvatarId + 1).Take(data[ptrAvatarId]).ToArray()),
-							Encoding.UTF8.GetString(data.Skip(ptrAvatarUpdatedAt + 1).Take(data[ptrAvatarUpdatedAt]).ToArray()),
-							Encoding.UTF8.GetString(data.Skip(ptrAvatarAuthor + 1).Take(data[ptrAvatarAuthor]).ToArray()),
-							Encoding.UTF8.GetString(data.Skip(ptrAvatarAuthorId + 1).Take(data[ptrAvatarAuthorId]).ToArray()),
-							Encoding.UTF8.GetString(data.Skip(ptrAvatarAssetUrl + 1).Take(data[ptrAvatarAssetUrl]).ToArray())
-						};
-						Logger.WriteLine(string.Join(", ", subitemstrings));
-						NewListViewItems.Enqueue(new ListViewItem(subitemstrings, -1));
-
-						var tail = ptrAvatarDict + IndexInByteArray(data.Skip(ptrAvatarDict).ToArray(), "\x0003\x00ff\x0008\x000b");
-						if (tail == -1)
-						{
-							break;
+							if (CheckBox_LogRawPackets.Checked)
+								Logger.WriteLine($"{message.Signifier}:{parameter.Key}: {parameter.Value}");
 						}
-						data = data.Skip(tail).ToArray();
 					}
 				}
 			}
@@ -240,6 +280,50 @@ namespace SniffAvtr
 				output += $"{b:X2} ";
 			}
 			return output;
+		}
+
+		private bool TryParseProperty(IDictionary propertyTable)
+		{
+			bool isValidTable = propertyTable["user"] != null && propertyTable["avatarDict"] != null;
+			if (isValidTable)
+			{
+				var userDict = propertyTable["user"] as IDictionary;
+				var avatarDict = propertyTable["avatarDict"] as IDictionary;
+
+				// Build list of asset variants
+				var unityPackages = avatarDict?["unityPackages"];
+				var assetList = "";
+				if (unityPackages is object[])
+				{
+					foreach (Dictionary<string, object> item in unityPackages as object[])
+					{
+						if (assetList.Length > 0)
+						{
+							assetList += ",";
+						}
+						assetList += $"{item["platform"]}-{item["unityVersion"]}={item["assetUrl"]}";
+					}
+				}
+
+				var subitemstrings = new string[]
+				{
+					userDict["displayName"].ToString(),
+					userDict["id"].ToString(),
+					userDict["last_platform"].ToString(),
+					avatarDict["name"].ToString(),
+					avatarDict["description"].ToString(),
+					avatarDict["id"].ToString(),
+					avatarDict["releaseStatus"].ToString(),
+					avatarDict["updated_at"].ToString(),
+					avatarDict["authorName"].ToString(),
+					avatarDict["authorId"].ToString(),
+					avatarDict["assetUrl"].ToString(),
+					assetList
+				};
+				Logger.WriteLine(string.Join(", ", subitemstrings));
+				NewListViewItems.Enqueue(new ListViewItem(subitemstrings, -1));
+			}
+			return isValidTable;
 		}
 
 		private int FindOffset(byte[] buffer, string key, int after = 0)
@@ -369,29 +453,45 @@ namespace SniffAvtr
 				}
 				else if (sender == copyAvatarNameToolStripMenuItem)
 				{
-					toCopy = selectedItem.SubItems[2].Text;
+					toCopy = selectedItem.SubItems[3].Text;
 				}
 				else if (sender == copyAvatarDescriptionToolStripMenuItem)
 				{
-					toCopy = selectedItem.SubItems[3].Text;
+					toCopy = selectedItem.SubItems[4].Text;
 				}
 				else if (sender == copyAvatarIDToolStripMenuItem)
 				{
-					toCopy = selectedItem.SubItems[4].Text;
+					toCopy = selectedItem.SubItems[5].Text;
 				}
 				else if (sender == copyAuthorDisplaynameToolStripMenuItem)
 				{
-					toCopy = selectedItem.SubItems[6].Text;
+					toCopy = selectedItem.SubItems[8].Text;
 				}
 				else if (sender == copyAuthorIDToolStripMenuItem)
 				{
-					toCopy = selectedItem.SubItems[7].Text;
+					toCopy = selectedItem.SubItems[9].Text;
 				}
-				else if (sender == copyAssetURLToolStripMenuItem)
+				else if ((sender is ToolStripMenuItem) && (sender as ToolStripMenuItem).Name.StartsWith("http"))
 				{
-					toCopy = selectedItem.SubItems[8].Text;
+					toCopy = (sender as ToolStripMenuItem).Name;
 				}
-				Clipboard.SetText(toCopy);
+				if (!string.IsNullOrEmpty(toCopy))
+					Clipboard.SetText(toCopy);
+			}
+		}
+
+		private void ContextMenuStrip_ListView_Opening(object sender, CancelEventArgs e)
+		{
+			if (MainListView.SelectedItems.Count == 1)
+			{
+				copyAssetURLToolStripMenuItem.DropDownItems.Clear();
+				ListViewItem selectedItem = MainListView.SelectedItems[0];
+				copyAssetURLToolStripMenuItem.DropDownItems.Add(new ToolStripMenuItem("default", null, copyToolStripMenuItem_Click, selectedItem.SubItems[10].Text));
+				foreach (string url in selectedItem.SubItems[11].Text.Split(','))
+				{
+					var pair = url.Split('=');
+					copyAssetURLToolStripMenuItem.DropDownItems.Add(new ToolStripMenuItem(pair[0], null, copyToolStripMenuItem_Click, pair[1]));
+				}
 			}
 		}
 	}

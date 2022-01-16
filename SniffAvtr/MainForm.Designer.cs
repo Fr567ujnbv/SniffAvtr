@@ -52,9 +52,11 @@ namespace SniffAvtr
 			this.MainListView = new ListViewEx();
 			this.ColumnHeaderUser = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
 			this.ColumnHeaderUserId = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+			this.ColumnHeaderPlatform = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
 			this.ColumnHeaderAvatarName = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
 			this.ColumnHeaderAvatarDescription = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
 			this.ColumnHeaderAvatarId = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
+			this.ColumnHeaderAvatarReleaseStatus = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
 			this.ColumnHeaderAvatarUploaded = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
 			this.ColumnHeaderAvatarAuthor = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
 			this.ColumnHeaderAvatarAuthorId = ((System.Windows.Forms.ColumnHeader)(new System.Windows.Forms.ColumnHeader()));
@@ -152,6 +154,7 @@ namespace SniffAvtr
 			this.ContextMenuStrip_ListView.Name = "ContextMenuStrip_ListView";
 			this.ContextMenuStrip_ListView.ShowImageMargin = false;
 			this.ContextMenuStrip_ListView.Size = new System.Drawing.Size(196, 198);
+			this.ContextMenuStrip_ListView.Opening += new System.ComponentModel.CancelEventHandler(this.ContextMenuStrip_ListView_Opening);
 			// 
 			// copyUserDisplaynameToolStripMenuItem
 			// 
@@ -222,7 +225,6 @@ namespace SniffAvtr
 			this.copyAssetURLToolStripMenuItem.Name = "copyAssetURLToolStripMenuItem";
 			this.copyAssetURLToolStripMenuItem.Size = new System.Drawing.Size(195, 22);
 			this.copyAssetURLToolStripMenuItem.Text = "Copy Asset URL";
-			this.copyAssetURLToolStripMenuItem.Click += new System.EventHandler(this.copyToolStripMenuItem_Click);
 			// 
 			// MainListView
 			// 
@@ -232,9 +234,11 @@ namespace SniffAvtr
 			this.MainListView.Columns.AddRange(new System.Windows.Forms.ColumnHeader[] {
             this.ColumnHeaderUser,
             this.ColumnHeaderUserId,
+            this.ColumnHeaderPlatform,
             this.ColumnHeaderAvatarName,
             this.ColumnHeaderAvatarDescription,
             this.ColumnHeaderAvatarId,
+            this.ColumnHeaderAvatarReleaseStatus,
             this.ColumnHeaderAvatarUploaded,
             this.ColumnHeaderAvatarAuthor,
             this.ColumnHeaderAvatarAuthorId,
@@ -274,6 +278,10 @@ namespace SniffAvtr
 			// 
 			this.ColumnHeaderAvatarId.Text = "ID";
 			this.ColumnHeaderAvatarId.Width = 250;
+			// 
+			// ColumnHeaderAvatarReleaseStatus
+			// 
+			this.ColumnHeaderAvatarReleaseStatus.Text = "Release Status";
 			// 
 			// ColumnHeaderAvatarUploaded
 			// 
@@ -360,6 +368,8 @@ namespace SniffAvtr
 		private System.Windows.Forms.ToolStripSeparator toolStripSeparator3;
 		private System.Windows.Forms.ToolStripMenuItem copyAssetURLToolStripMenuItem;
 		private System.Windows.Forms.CheckBox CheckBox_LogRawPackets;
+		private System.Windows.Forms.ColumnHeader ColumnHeaderAvatarReleaseStatus;
+		private System.Windows.Forms.ColumnHeader ColumnHeaderPlatform;
 	}
 }
 

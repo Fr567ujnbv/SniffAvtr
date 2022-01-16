@@ -189,12 +189,7 @@ namespace SniffAvtr
 		{
 			private byte u8Signifier;
 			private byte u8Type;
-			private byte u8OperationCode;
-			private byte u8ParameterCount;
 			private byte[] vecParameterData;
-			private ushort u16OperationReturnCode;
-			private byte u8OperationDebug;
-			private byte u8EventCode;
 
 			public Message(byte[] buffer, int index, int length)
 			{
@@ -205,30 +200,8 @@ namespace SniffAvtr
 						u8Signifier = binaryReader.ReadByte();
 						u8Type = binaryReader.ReadByte();
 
-						switch (MessageType)
-						{
-							case Type.OperationRequest:
-								u8OperationCode = binaryReader.ReadByte();
-								u8ParameterCount = binaryReader.ReadByte();
-								vecParameterData = new byte[length - 4];
-								Array.Copy(buffer, 4, vecParameterData, 0, length - 4);
-								break;
-							case Type.OperationResponse:
-							case Type.OperationResponse7:
-								u8OperationCode = binaryReader.ReadByte();
-								u16OperationReturnCode = (ushort)IPAddress.NetworkToHostOrder(binaryReader.ReadInt16());
-								u8OperationDebug = binaryReader.ReadByte();
-								u8ParameterCount = binaryReader.ReadByte();
-								vecParameterData = new byte[length - 7];
-								Array.Copy(buffer, 4, vecParameterData, 0, length - 7);
-								break;
-							case Type.EventData:
-								u8EventCode = binaryReader.ReadByte();
-								u8ParameterCount = binaryReader.ReadByte();
-								vecParameterData = new byte[length - 4];
-								Array.Copy(buffer, 4, vecParameterData, 0, length - 4);
-								break;
-						}
+						vecParameterData = new byte[length - 2];
+						Array.Copy(buffer, 2, vecParameterData, 0, length - 2);
 					}
 				}
 			}
@@ -244,12 +217,7 @@ namespace SniffAvtr
 				OperationResponse7 = 7
 			}
 
-			public byte OperationCode => u8OperationCode;
-			public byte ParameterCount => u8ParameterCount;
 			public byte[] Data => vecParameterData;
-			public ushort OperationReturnCode => u16OperationReturnCode;
-			public byte OperationDebug => u8OperationDebug;
-			public byte EventCode => u8EventCode;
 		}
 	}
 }
